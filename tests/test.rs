@@ -369,3 +369,16 @@ fn msvc_no_static_crt() {
 
     test.cmd(0).must_have("/MD");
 }
+
+#[cfg(target_os = "android")]
+#[test]
+fn android_get_compiler() {
+    env::set_var("HOST", "x86_64-unknown-linux-gnu"); // FIXME
+    env::set_var("OPT_LEVEL", "2");
+    env::set_var("ANDROID_API", "28");
+    let tool = cc::Build::new()
+        .target("aarch64-linux-android")
+        .get_compiler();
+    let cc_path = tool.path();
+    assert_eq!(cc_path.to_str().unwrap(), "aarch64-linux-android28-clang");
+}

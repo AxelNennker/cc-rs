@@ -85,6 +85,12 @@ mod setup_config;
 
 pub mod windows_registry;
 
+mod android;
+use android::android_find_compiler;
+
+mod error;
+use error::{Error, ErrorKind};
+
 /// A builder for compilation of a native static library.
 ///
 /// A `Build` is the main type of the `cc` crate and is used to control all the
@@ -121,45 +127,6 @@ pub struct Build {
     warnings: Option<bool>,
     extra_warnings: Option<bool>,
     env_cache: Arc<Mutex<HashMap<String, Option<String>>>>,
-}
-
-/// Represents the types of errors that may occur while using cc-rs.
-#[derive(Clone, Debug)]
-enum ErrorKind {
-    /// Error occurred while performing I/O.
-    IOError,
-    /// Invalid architecture supplied.
-    ArchitectureInvalid,
-    /// Environment variable not found, with the var in question as extra info.
-    EnvVarNotFound,
-    /// Error occurred while using external tools (ie: invocation of compiler).
-    ToolExecError,
-    /// Error occurred due to missing external tools.
-    ToolNotFound,
-}
-
-/// Represents an internal error that occurred, with an explanation.
-#[derive(Clone, Debug)]
-pub struct Error {
-    /// Describes the kind of error that occurred.
-    kind: ErrorKind,
-    /// More explanation of error that occurred.
-    message: String,
-}
-
-impl Error {
-    fn new(kind: ErrorKind, message: &str) -> Error {
-        Error {
-            kind: kind,
-            message: message.to_owned(),
-        }
-    }
-}
-
-impl From<io::Error> for Error {
-    fn from(e: io::Error) -> Error {
-        Error::new(ErrorKind::IOError, &format!("{}", e))
-    }
 }
 
 /// Configuration used to represent an invocation of a C compiler.
@@ -526,9 +493,9 @@ impl Build {
 
     /// Add files which will be compiled
     pub fn files<P>(&mut self, p: P) -> &mut Build
-    where
-        P: IntoIterator,
-        P::Item: AsRef<Path>,
+        where
+            P: IntoIterator,
+            P::Item: AsRef<Path>,
     {
         for file in p.into_iter() {
             self.file(file);
@@ -850,9 +817,9 @@ impl Build {
 
     #[doc(hidden)]
     pub fn __set_env<A, B>(&mut self, a: A, b: B) -> &mut Build
-    where
-        A: AsRef<OsStr>,
-        B: AsRef<OsStr>,
+        where
+            A: AsRef<OsStr>,
+            B: AsRef<OsStr>,
     {
         self.env
             .push((a.as_ref().to_owned(), b.as_ref().to_owned()));
@@ -1178,7 +1145,7 @@ impl Build {
         match cmd.family {
             ToolFamily::Msvc { .. } => {
                 assert!(!self.cuda,
-                    "CUDA C++ compilation not supported for MSVC, yet... but you are welcome to implement it :)");
+                        "CUDA C++ compilation not supported for MSVC, yet... but you are welcome to implement it :)");
 
                 cmd.args.push("/nologo".into());
 
@@ -1735,25 +1702,12 @@ impl Build {
                         format!("{}.exe", gnu)
                     }
                 } else if target.contains("android") {
-                    let target = target
-                        .replace("armv7neon", "arm")
-                        .replace("armv7", "arm")
-                        .replace("thumbv7neon", "arm")
-                        .replace("thumbv7", "arm");
-                    let gnu_compiler = format!("{}-{}", target, gnu);
-                    let clang_compiler = format!("{}-{}", target, clang);
-                    // Check if gnu compiler is present
-                    // if not, use clang
-                    if Command::new(&gnu_compiler).spawn().is_ok() {
-                        gnu_compiler
-                    } else {
-                        clang_compiler
-                    }
+                    android_find_compiler(&target, &gnu, &clang)
                 } else if target.contains("cloudabi") {
                     format!("{}-{}", target, traditional)
                 } else if target == "wasm32-wasi" ||
-                          target == "wasm32-unknown-wasi" ||
-                          target == "wasm32-unknown-unknown" {
+                    target == "wasm32-unknown-wasi" ||
+                    target == "wasm32-unknown-unknown" {
                     "clang".to_string()
                 } else if self.get_host()? != target {
                     // CROSS_COMPILE is of the form: "arm-linux-gnueabi-"
@@ -2378,7 +2332,7 @@ fn spawn(cmd: &mut Command, program: &str) -> Result<(Child, JoinHandle<()>), Er
                 for line in stderr.split(b'\n').filter_map(|l| l.ok()) {
                     print!("cargo:warning=");
                     std::io::stdout().write_all(&line).unwrap();
-                    println!("");
+                    println!();
                 }
             });
             Ok((child, print))
